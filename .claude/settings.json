@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pnpm run dev*)",
+      "Bash(pnpm run build*)",
+      "Bash(pnpm run types*)",
+      "Bash(pnpm run lint*)",
+      "Bash(pnpm run format*)",
+      "Bash(pnpm run ci*)"
+    ]
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pnpm run ci >&2 || exit 2"
+          }
+        ]
+      }
+    ]
+  }
+}
