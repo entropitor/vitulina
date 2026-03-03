@@ -1,0 +1,20 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model DevServer {
+  id                Int    @id @default(autoincrement())
+  project_name      String
+  working_directory String
+  env               String
+  server_name       String
+  pid               Int
+  port              Int
+
+  @@unique([project_name, env, server_name])
+}

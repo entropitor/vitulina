@@ -1,3 +1,5 @@
 node_modules/
 dist/
 .oxfmt-cache/
+
+/src/generated/prisma

@@ -6,7 +6,8 @@
       "Bash(pnpm run types*)",
       "Bash(pnpm run lint*)",
       "Bash(pnpm run format*)",
-      "Bash(pnpm run ci*)"
+      "Bash(pnpm run ci*)",
+      "Bash(pnpm prisma generate)"
     ]
   },
   "hooks": {
