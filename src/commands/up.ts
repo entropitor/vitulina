@@ -88,6 +88,7 @@ interface StartParams {
 interface ServerContext {
   server: { name: string; command: string };
   port: number;
+  hostName: string;
   stdoutLogPath: string;
   stderrLogPath: string;
 }
@@ -95,15 +96,10 @@ interface ServerContext {
 const prepareServer = (params: StartParams, server: { name: string; command: string }) =>
   Effect.gen(function* () {
     const port = yield* acquirePort;
-    const stdoutLogPath = path.join(
-      params.logDir,
-      `${server.name}.${params.env}.${params.domain_suffix}.stdout.log`,
-    );
-    const stderrLogPath = path.join(
-      params.logDir,
-      `${server.name}.${params.env}.${params.domain_suffix}.stderr.log`,
-    );
-    return { server, port, stdoutLogPath, stderrLogPath } satisfies ServerContext;
+    const hostName = `${server.name}.${params.env}.${params.domain_suffix}`;
+    const stdoutLogPath = path.join(params.logDir, `${hostName}.stdout.log`);
+    const stderrLogPath = path.join(params.logDir, `${hostName}.stderr.log`);
+    return { server, port, hostName, stdoutLogPath, stderrLogPath } satisfies ServerContext;
   });
 
 const registerServer = (params: StartParams, ctx: ServerContext, pid: number) =>
@@ -143,6 +139,7 @@ const startDetached = (params: StartParams) =>
 
       yield* registerServer(params, ctx, proc.pid);
       yield* Console.log(`Started ${server.name} on port ${ctx.port} (pid ${proc.pid}) [detached]`);
+      yield* Console.log(`  hostname: ${ctx.hostName}`);
       yield* Console.log(`  stdout: ${ctx.stdoutLogPath}`);
       yield* Console.log(`  stderr: ${ctx.stderrLogPath}`);
     }

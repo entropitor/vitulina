@@ -3,6 +3,7 @@ import { BunContext, BunRuntime } from "@effect/platform-bun";
 import { Effect } from "effect";
 import { root } from "./commands/root.js";
 import { PrismaLive } from "./Prisma.js";
+import { GlobalConfigurationLive } from "./Config.service.js";
 
 const cli = Command.run(root, {
   name: "vitulina",
@@ -10,7 +11,8 @@ const cli = Command.run(root, {
 });
 
 cli(process.argv).pipe(
-  Effect.provide(BunContext.layer),
+  Effect.provide(GlobalConfigurationLive),
   Effect.provide(PrismaLive),
+  Effect.provide(BunContext.layer),
   BunRuntime.runMain,
 );
