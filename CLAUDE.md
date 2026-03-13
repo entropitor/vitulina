@@ -33,3 +33,8 @@ Commands are defined with `Command.make` from `@effect/cli`. The CLI runner in `
 
 - Use `.js` extensions in TypeScript imports (ESM resolution)
 - Output goes to `dist/`; source lives in `src/`
+
+## Coding style
+
+- Always use braces for `if` statements — no single-line ifs
+- Prefer `null` over `undefined` for explicit absence
