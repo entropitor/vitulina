@@ -9,7 +9,7 @@ import {
   GlobalConfigurationLive,
   ProjectConfiguration,
   ProjectConfigurationLive,
-} from "../Config.service.js";
+} from "../services/Config.js";
 import type { PrismaClient } from "../generated/prisma/client.js";
 import { Prisma } from "../Prisma.js";
 import { acquirePort } from "../util/port.js";

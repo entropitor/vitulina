@@ -11,7 +11,7 @@ import {
 } from "@effect/platform";
 import { BunHttpServer } from "@effect/platform-bun";
 import { Console, Effect, Layer, Option } from "effect";
-import { GlobalConfiguration } from "../Config.service.js";
+import { GlobalConfiguration } from "../services/Config.js";
 import { Prisma } from "../Prisma.js";
 import { ProjectIndexLive, ProjectIndexService } from "../services/ProjectIndex.js";
 

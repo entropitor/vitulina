@@ -1,10 +1,6 @@
 import { BunContext } from "@effect/platform-bun";
 import { Context, Effect, Layer, Ref } from "effect";
-import {
-  GlobalConfiguration,
-  GlobalConfigurationLive,
-  type ProjectEntry,
-} from "../Config.service.js";
+import { GlobalConfiguration, GlobalConfigurationLive, type ProjectEntry } from "./Config.js";
 
 export interface ProjectMatch {
   serverName: string;
