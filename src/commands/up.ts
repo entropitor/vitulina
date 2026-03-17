@@ -14,6 +14,8 @@ import type { PrismaClient } from "../generated/prisma/client.js";
 import { Prisma } from "../Prisma.js";
 import { acquirePort } from "../util/port.js";
 import { getJjWorkspaceName } from "../util/jj.js";
+import { isProcessAlive } from "../util/process.js";
+import { PROXY_PORT } from "./proxy.js";
 
 const envOption = Options.text("env").pipe(
   Options.withDefault((await getJjWorkspaceName()) ?? "default"),
@@ -48,13 +50,50 @@ export const up = Command.make(
       const logDir = path.join(tmpDir, "vitulina");
       yield* fs.makeDirectory(logDir, { recursive: true });
 
-      const serversToStart =
+      const candidateServers =
         filterServers.length > 0
           ? projectConfiguration.servers.filter((s) => filterServers.includes(s.name))
           : projectConfiguration.servers;
 
-      if (serversToStart.length === 0) {
+      if (candidateServers.length === 0) {
         return yield* Console.error("No servers to start");
+      }
+
+      const candidateNames = candidateServers.map((s) => s.name);
+      const existingRecords = yield* Effect.promise(() =>
+        prisma.devServer.findMany({
+          where: {
+            project_name: projectConfiguration.project_name,
+            env,
+            server_name: { in: candidateNames },
+          },
+        }),
+      );
+
+      const staleIds: number[] = [];
+      const aliveNames = new Set<string>();
+      for (const record of existingRecords) {
+        if (isProcessAlive(record.pid)) {
+          aliveNames.add(record.server_name);
+          yield* Console.log(`${record.server_name} already running (pid ${record.pid}), skipping`);
+        } else {
+          staleIds.push(record.id);
+          yield* Console.log(
+            `${record.server_name} (pid ${record.pid}) is dead, cleaning up stale record`,
+          );
+        }
+      }
+
+      if (staleIds.length > 0) {
+        yield* Effect.promise(() =>
+          prisma.devServer.deleteMany({ where: { id: { in: staleIds } } }),
+        );
+      }
+
+      const serversToStart = candidateServers.filter((s) => !aliveNames.has(s.name));
+
+      if (serversToStart.length === 0) {
+        return yield* Console.log("All servers already running");
       }
 
       const params: StartParams = {
@@ -91,6 +130,7 @@ interface ServerContext {
   hostName: string;
   stdoutLogPath: string;
   stderrLogPath: string;
+  env: Record<string, string>;
 }
 
 const prepareServer = (params: StartParams, server: { name: string; command: string }) =>
@@ -99,7 +139,19 @@ const prepareServer = (params: StartParams, server: { name: string; command: str
     const hostName = `${server.name}.${params.env}.${params.domain_suffix}`;
     const stdoutLogPath = path.join(params.logDir, `${hostName}.stdout.log`);
     const stderrLogPath = path.join(params.logDir, `${hostName}.stderr.log`);
-    return { server, port, hostName, stdoutLogPath, stderrLogPath } satisfies ServerContext;
+    return {
+      server,
+      port,
+      hostName,
+      stdoutLogPath,
+      stderrLogPath,
+      env: {
+        ...process.env,
+        PORT: String(port),
+        VITULINA_ENV: params.env,
+        VITULINA_PROXY_PORT: String(PROXY_PORT),
+      },
+    } satisfies ServerContext;
   });
 
 const registerServer = (params: StartParams, ctx: ServerContext, pid: number) =>
@@ -131,7 +183,7 @@ const startDetached = (params: StartParams) =>
 
       const proc = Bun.spawn(["sh", "-c", server.command], {
         cwd: params.cwd,
-        env: { ...process.env, PORT: String(ctx.port) },
+        env: ctx.env,
         stdout: Bun.file(ctx.stdoutLogPath),
         stderr: Bun.file(ctx.stderrLogPath),
       });
@@ -154,7 +206,7 @@ const startForeground = (params: StartParams) =>
       const ctx = yield* prepareServer(params, server);
 
       const cmd = PlatformCommand.make("sh", "-c", server.command).pipe(
-        PlatformCommand.env({ ...process.env, PORT: String(ctx.port) }),
+        PlatformCommand.env(ctx.env),
         PlatformCommand.workingDirectory(params.cwd),
       );
 
@@ -192,12 +244,14 @@ const startForeground = (params: StartParams) =>
       yield* Console.log(`  ${s.name} -> port ${s.port} (pid ${s.pid})`);
     }
 
+    const startedServerNames = processes.map((s) => s.name);
     yield* Effect.addFinalizer(() =>
       Effect.promise(() =>
         params.prisma.devServer.deleteMany({
           where: {
             project_name: params.projectName,
             env: params.env,
+            server_name: { in: startedServerNames },
           },
         }),
       ),
