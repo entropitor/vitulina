@@ -3,19 +3,22 @@ import {
   FetchHttpClient,
   Headers,
   HttpClient,
+  HttpClientError,
   HttpClientRequest,
   HttpRouter,
   HttpServer,
   HttpServerRequest,
   HttpServerResponse,
+  Socket,
 } from "@effect/platform";
-import { BunHttpServer } from "@effect/platform-bun";
+import { BunHttpServer, BunSocket } from "@effect/platform-bun";
 import { Console, Effect, Layer, Option } from "effect";
+import { cyan, httpStatusColor, magentaBright, serviceColor, yellow } from "../colors.js";
 import { GlobalConfiguration } from "../services/Config.js";
 import { Prisma } from "../Prisma.js";
 import { ProjectIndexLive, ProjectIndexService } from "../services/ProjectIndex.js";
 
-const PROXY_PORT = 4000;
+export const PROXY_PORT = 4000;
 
 const generatePacFile = Effect.fn("generatePacFile")(function* () {
   const globalConfig = yield* GlobalConfiguration;
@@ -47,14 +50,126 @@ const pacHandler = generatePacFile().pipe(
   ),
 );
 
+const forwardRequest = (targetUrl: string, hostOverride?: string) =>
+  Effect.gen(function* () {
+    const req = yield* HttpServerRequest.HttpServerRequest;
+    const client = yield* HttpClient.HttpClient;
+
+    const contentLength = Headers.get(req.headers, "content-length").pipe(Option.getOrUndefined);
+    const hasBody =
+      req.method !== "GET" &&
+      req.method !== "HEAD" &&
+      req.method !== "OPTIONS" &&
+      contentLength != null &&
+      contentLength !== "0";
+    const contentType = Headers.get(req.headers, "content-type").pipe(Option.getOrUndefined);
+
+    const proxyReq = HttpClientRequest.make(req.method)(targetUrl).pipe(
+      HttpClientRequest.setHeaders(req.headers),
+      hostOverride ? HttpClientRequest.setHeader("host", hostOverride) : (r) => r,
+      hasBody ? HttpClientRequest.bodyStream(req.stream, { contentType }) : (r) => r,
+    );
+
+    const response = yield* client.execute(proxyReq).pipe(
+      Effect.provideService(FetchHttpClient.RequestInit, {
+        decompress: false,
+        // redirect: hostOverride != null ? "manual" : "follow",
+      } as RequestInit),
+    );
+
+    return HttpServerResponse.stream(response.stream, {
+      status: response.status,
+      headers: response.headers,
+    });
+  });
+
+const bridgeSockets = (a: Socket.Socket, b: Socket.Socket) =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const writeToB = yield* b.writer;
+      const writeToA = yield* a.writer;
+      yield* Effect.all([a.runRaw((data) => writeToB(data)), b.runRaw((data) => writeToA(data))], {
+        concurrency: 2,
+      });
+    }),
+  );
+
+const wsProxyHandler = Effect.gen(function* () {
+  const req = yield* HttpServerRequest.HttpServerRequest;
+  const projectIndex = yield* ProjectIndexService;
+  const prisma = yield* Prisma;
+
+  const host = Headers.get(req.headers, "host").pipe(Option.getOrElse(() => ""));
+  const hostName = host.split(":")[0];
+
+  const match = yield* projectIndex.lookup(hostName);
+  if (!match) {
+    return HttpServerResponse.text(`No project match for host "${hostName}"\n`, { status: 502 });
+  }
+
+  const svcClr = serviceColor(match.serverName);
+
+  const target = yield* Effect.promise(() =>
+    prisma.devServer.findUnique({
+      where: {
+        project_name_env_server_name: {
+          project_name: match.project.name,
+          env: match.env,
+          server_name: match.serverName,
+        },
+      },
+    }),
+  );
+
+  let targetUrl: string;
+  let label: string;
+
+  if (!target) {
+    if (Option.isSome(match.project.upstream_proxy_domain)) {
+      const upstreamHost = `${match.serverName}.${match.project.upstream_proxy_domain.value}`;
+      targetUrl = `wss://${upstreamHost}${req.url}`;
+      label = yellow("upstream");
+    } else {
+      return HttpServerResponse.text(
+        `No server registered for ${match.serverName}.${match.env} in project "${match.project.name}"\n`,
+        { status: 502 },
+      );
+    }
+  } else {
+    targetUrl = `ws://localhost:${target.port}${req.url}`;
+    label = cyan("local");
+  }
+
+  yield* Console.log(
+    `  ${svcClr(match.serverName)} -> ${label} ${magentaBright("WS")} ${targetUrl}`,
+  );
+
+  const protocols = Headers.get(req.headers, "sec-websocket-protocol").pipe(
+    Option.map((p) => p.split(",").map((s) => s.trim())),
+    Option.getOrUndefined,
+  );
+
+  const incomingSocket = yield* HttpServerRequest.upgrade;
+  const targetSocket = yield* Socket.makeWebSocket(targetUrl, { protocols });
+
+  yield* bridgeSockets(incomingSocket, targetSocket);
+
+  return HttpServerResponse.empty();
+});
+
 const proxyHandler = Effect.gen(function* () {
   const req = yield* HttpServerRequest.HttpServerRequest;
-  const client = yield* HttpClient.HttpClient;
   const prisma = yield* Prisma;
   const projectIndex = yield* ProjectIndexService;
 
   const host = Headers.get(req.headers, "host").pipe(Option.getOrElse(() => ""));
   const hostName = host.split(":")[0];
+
+  const upgradeHeader = Headers.get(req.headers, "upgrade").pipe(Option.getOrElse(() => ""));
+  if (upgradeHeader.toLowerCase() === "websocket") {
+    yield* Console.log(`WS ${host}${req.url}`);
+    return yield* wsProxyHandler;
+  }
 
   yield* Console.log(`${req.method} ${host}${req.url}`);
 
@@ -62,6 +177,8 @@ const proxyHandler = Effect.gen(function* () {
   if (!match) {
     return HttpServerResponse.text(`No project match for host "${hostName}"\n`, { status: 502 });
   }
+
+  const svcClr = serviceColor(match.serverName);
 
   const target = yield* Effect.promise(() =>
     prisma.devServer.findUnique({
@@ -80,26 +197,14 @@ const proxyHandler = Effect.gen(function* () {
       const upstreamHost = `${match.serverName}.${match.project.upstream_proxy_domain.value}`;
       const upstreamUrl = `https://${upstreamHost}${req.url}`;
 
-      yield* Console.log(`  -> upstream ${upstreamUrl}`);
+      const upstreamRes = yield* forwardRequest(upstreamUrl, upstreamHost);
+      const sc = httpStatusColor(upstreamRes.status);
 
-      const hasBody = req.method !== "GET" && req.method !== "HEAD";
-      const proxyReq = HttpClientRequest.make(req.method)(upstreamUrl).pipe(
-        HttpClientRequest.setHeaders(req.headers),
-        HttpClientRequest.setHeader("host", upstreamHost),
-        hasBody ? HttpClientRequest.bodyStream(req.stream) : (r) => r,
+      yield* Console.log(
+        `  ${svcClr(match.serverName)} -> ${yellow("upstream")} ${sc(String(upstreamRes.status))} ${upstreamUrl}`,
       );
 
-      const response = yield* client.execute(proxyReq).pipe(
-        Effect.provideService(FetchHttpClient.RequestInit, {
-          decompress: false,
-          redirect: "manual",
-        } as RequestInit),
-      );
-
-      return HttpServerResponse.stream(response.stream, {
-        status: response.status,
-        headers: response.headers,
-      });
+      return upstreamRes;
     }
 
     return HttpServerResponse.text(
@@ -108,24 +213,29 @@ const proxyHandler = Effect.gen(function* () {
     );
   }
 
-  const targetUrl = `http://127.0.0.1:${target.port}${req.url}`;
+  const targetUrl = `http://localhost:${target.port}${req.url}`;
 
-  const hasBody = req.method !== "GET" && req.method !== "HEAD";
-  const proxyReq = HttpClientRequest.make(req.method)(targetUrl).pipe(
-    HttpClientRequest.setHeaders(req.headers),
-    hasBody ? HttpClientRequest.bodyStream(req.stream) : (r) => r,
+  const localRes = yield* forwardRequest(targetUrl);
+  const sc = httpStatusColor(localRes.status);
+
+  yield* Console.log(
+    `  ${svcClr(match.serverName)} -> ${cyan("local")} ${sc(String(localRes.status))} ${targetUrl}`,
   );
 
-  const response = yield* client.execute(proxyReq);
-
-  return HttpServerResponse.stream(response.stream, {
-    status: response.status,
-    headers: response.headers,
-  });
+  return localRes;
 }).pipe(
-  Effect.catchAll((error) =>
-    Effect.succeed(HttpServerResponse.text(`Proxy error: ${error}\n`, { status: 502 })),
-  ),
+  Effect.catchAll((error) => {
+    const url = error instanceof HttpClientError.RequestError ? ` (${error.methodAndUrl})` : "";
+    const detail =
+      error instanceof HttpClientError.RequestError && error.cause
+        ? String(error.cause)
+        : String(error);
+    return Effect.succeed(
+      HttpServerResponse.text(`Proxy error${url}: ${detail}\n`, {
+        status: 502,
+      }),
+    );
+  }),
 );
 
 const router = HttpRouter.empty.pipe(
@@ -137,6 +247,7 @@ const ServerLive = router.pipe(
   HttpServer.serve(),
   Layer.provide(BunHttpServer.layer({ port: PROXY_PORT })),
   Layer.provide(FetchHttpClient.layer),
+  Layer.provide(BunSocket.layerWebSocketConstructor),
 );
 
 const proxyStart = Command.make("start", {}, () =>
