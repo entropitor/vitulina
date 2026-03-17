@@ -76,6 +76,32 @@ const proxyHandler = Effect.gen(function* () {
   );
 
   if (!target) {
+    if (Option.isSome(match.project.upstream_proxy_domain)) {
+      const upstreamHost = `${match.serverName}.${match.project.upstream_proxy_domain.value}`;
+      const upstreamUrl = `https://${upstreamHost}${req.url}`;
+
+      yield* Console.log(`  -> upstream ${upstreamUrl}`);
+
+      const hasBody = req.method !== "GET" && req.method !== "HEAD";
+      const proxyReq = HttpClientRequest.make(req.method)(upstreamUrl).pipe(
+        HttpClientRequest.setHeaders(req.headers),
+        HttpClientRequest.setHeader("host", upstreamHost),
+        hasBody ? HttpClientRequest.bodyStream(req.stream) : (r) => r,
+      );
+
+      const response = yield* client.execute(proxyReq).pipe(
+        Effect.provideService(FetchHttpClient.RequestInit, {
+          decompress: false,
+          redirect: "manual",
+        } as RequestInit),
+      );
+
+      return HttpServerResponse.stream(response.stream, {
+        status: response.status,
+        headers: response.headers,
+      });
+    }
+
     return HttpServerResponse.text(
       `No server registered for ${match.serverName}.${match.env} in project "${match.project.name}"\n`,
       { status: 502 },

@@ -9,6 +9,7 @@ import os from "node:os";
 const ProjectEntrySchema = Schema.Struct({
   name: Schema.String,
   domain_suffix: Schema.String,
+  upstream_proxy_domain: Schema.optionalWith(Schema.String, { as: "Option" }),
 });
 
 const GlobalConfigSchema = Schema.Struct({
