@@ -4,10 +4,11 @@ import { Effect } from "effect";
 import { root } from "./commands/root.js";
 import { PrismaLive } from "./Prisma.js";
 import { GlobalConfigurationLive } from "./services/Config.js";
+import { VERSION } from "./version.js";
 
 const cli = Command.run(root, {
   name: "vitulina",
-  version: "0.0.1",
+  version: VERSION,
 });
 
 cli(process.argv).pipe(
