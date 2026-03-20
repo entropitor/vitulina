@@ -1,6 +1,7 @@
-import { Command } from "@effect/cli";
+import { Command, Options } from "@effect/cli";
 import {
   FetchHttpClient,
+  FileSystem,
   Headers,
   HttpClient,
   HttpClientError,
@@ -14,11 +15,12 @@ import {
 import { BunHttpServer, BunSocket } from "@effect/platform-bun";
 import { Console, Effect, Layer, Option } from "effect";
 import { cyan, httpStatusColor, magentaBright, serviceColor, yellow } from "../colors.js";
-import { GlobalConfiguration } from "../services/Config.js";
 import { Prisma } from "../Prisma.js";
+import { GlobalConfiguration } from "../services/Config.js";
 import { ProjectIndexLive, ProjectIndexService } from "../services/ProjectIndex.js";
-
-export const PROXY_PORT = 4000;
+import { printLogFile, tailFile } from "../util/log.js";
+import { PROXY_PORT, proxyLogPaths, stopProxy } from "../util/proxy.js";
+import { VERSION } from "../version.js";
 
 const generatePacFile = Effect.fn("generatePacFile")(function* () {
   const globalConfig = yield* GlobalConfiguration;
@@ -240,6 +242,7 @@ const proxyHandler = Effect.gen(function* () {
 
 const router = HttpRouter.empty.pipe(
   HttpRouter.get("/proxy.pac", pacHandler),
+  HttpRouter.get("/vitulina.json", HttpServerResponse.json({ version: VERSION })),
   HttpRouter.all("*", proxyHandler),
 );
 
@@ -258,5 +261,26 @@ const proxyStart = Command.make("start", {}, () =>
   }),
 ).pipe(Command.provide(ProjectIndexLive));
 
-const proxyCmd = Command.make("proxy", {}, () => Console.log("Usage: vitulina proxy start"));
-export const proxy = proxyCmd.pipe(Command.withSubcommands([proxyStart]));
+const proxyStop = Command.make("stop", {}, () => stopProxy);
+
+const followOption = Options.boolean("follow").pipe(Options.withAlias("f"));
+
+const proxyLogs = Command.make("logs", { follow: followOption }, ({ follow }) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+
+    if (follow) {
+      yield* Effect.fork(tailFile(fs, proxyLogPaths.stdout, "proxy", false));
+      yield* Effect.fork(tailFile(fs, proxyLogPaths.stderr, "proxy", true));
+      yield* Effect.never;
+    } else {
+      yield* printLogFile(fs, proxyLogPaths.stdout, "proxy", false);
+      yield* printLogFile(fs, proxyLogPaths.stderr, "proxy", true);
+    }
+  }),
+);
+
+const proxyCmd = Command.make("proxy", {}, () =>
+  Console.log("Usage: vitulina proxy <start|stop|logs>"),
+);
+export const proxy = proxyCmd.pipe(Command.withSubcommands([proxyStart, proxyStop, proxyLogs]));

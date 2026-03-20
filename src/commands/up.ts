@@ -15,7 +15,7 @@ import { Prisma } from "../Prisma.js";
 import { acquirePort } from "../util/port.js";
 import { getJjWorkspaceName } from "../util/jj.js";
 import { isProcessAlive } from "../util/process.js";
-import { PROXY_PORT } from "./proxy.js";
+import { ensureProxy, PROXY_PORT } from "../util/proxy.js";
 
 const envOption = Options.text("env").pipe(
   Options.withDefault((await getJjWorkspaceName()) ?? "default"),
@@ -30,6 +30,8 @@ export const up = Command.make(
   { env: envOption, detach: detachOption, servers: serverFilter },
   ({ env, detach, servers: filterServers }) =>
     Effect.gen(function* () {
+      yield* ensureProxy;
+
       const globalConfiguration = yield* GlobalConfiguration;
       const projectConfiguration = yield* ProjectConfiguration;
       const prisma = yield* Prisma;
