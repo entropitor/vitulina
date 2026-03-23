@@ -2,9 +2,8 @@
   "name": "vitulina",
   "version": "0.0.1",
   "keywords": [],
-  "license": "ISC",
   "bin": {
-    "vitulina": "./dist/main.js"
+    "vitulina": "./dist/src/main.js"
   },
   "type": "module",
   "scripts": {
