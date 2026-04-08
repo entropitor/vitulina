@@ -2,17 +2,32 @@ import { Command } from "@effect/cli";
 import { Console, Effect } from "effect";
 import { Prisma } from "../Prisma.js";
 import { GlobalConfiguration } from "../services/Config.js";
+import { isProcessAlive } from "../util/process.js";
 
 export const ps = Command.make("ps", {}, () =>
   Effect.gen(function* () {
     const globalConfig = yield* GlobalConfiguration;
     const prisma = yield* Prisma;
 
-    const servers = yield* Effect.promise(() =>
+    const allServers = yield* Effect.promise(() =>
       prisma.devServer.findMany({
         orderBy: [{ project_name: "asc" }, { env: "asc" }, { server_name: "asc" }],
       }),
     );
+
+    // Remove stale records for processes that are no longer running
+    const staleIds: number[] = [];
+    const servers = allServers.filter((s) => {
+      if (isProcessAlive(s.pid)) {
+        return true;
+      }
+      staleIds.push(s.id);
+      return false;
+    });
+
+    if (staleIds.length > 0) {
+      yield* Effect.promise(() => prisma.devServer.deleteMany({ where: { id: { in: staleIds } } }));
+    }
 
     if (servers.length === 0) {
       yield* Console.log("No running dev servers.");
