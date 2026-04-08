@@ -1,6 +1,6 @@
-import { Args, Command, Options } from "@effect/cli";
+import { Command } from "@effect/cli";
 import { Command as PlatformCommand, FileSystem } from "@effect/platform";
-import { Console, Effect, Stream } from "effect";
+import { Console, Effect, Option, Stream } from "effect";
 import os from "node:os";
 import path from "node:path";
 import {
@@ -12,18 +12,11 @@ import {
 } from "../services/Config.js";
 import type { PrismaClient } from "../generated/prisma/client.js";
 import { Prisma } from "../Prisma.js";
-import { acquirePort } from "../util/port.js";
 import { getJjWorkspaceName } from "../util/jj.js";
+import { acquirePort } from "../util/port.js";
 import { isProcessAlive } from "../util/process.js";
 import { ensureProxy, PROXY_PORT } from "../util/proxy.js";
-
-const envOption = Options.text("env").pipe(
-  Options.withDefault((await getJjWorkspaceName()) ?? "default"),
-);
-
-const detachOption = Options.boolean("detach").pipe(Options.withAlias("d"));
-
-const serverFilter = Args.repeated(Args.text({ name: "server" }));
+import { detachOption, envOption, serverFilter } from "./shared.js";
 
 export const up = Command.make(
   "up",
@@ -36,7 +29,11 @@ export const up = Command.make(
       const projectConfiguration = yield* ProjectConfiguration;
       const prisma = yield* Prisma;
       const fs = yield* FileSystem.FileSystem;
-      const cwd = process.cwd();
+      const cwd = projectConfiguration.projectRoot;
+
+      const envName = Option.isSome(env)
+        ? env.value
+        : ((yield* Effect.promise(() => getJjWorkspaceName())) ?? "default");
 
       const projectEntry = globalConfiguration.projects.find(
         (p) => p.name === projectConfiguration.project_name,
@@ -66,7 +63,7 @@ export const up = Command.make(
         prisma.devServer.findMany({
           where: {
             project_name: projectConfiguration.project_name,
-            env,
+            env: envName,
             server_name: { in: candidateNames },
           },
         }),
@@ -100,7 +97,7 @@ export const up = Command.make(
 
       const params: StartParams = {
         serversToStart,
-        env,
+        env: envName,
         cwd,
         logDir,
         domain_suffix,
@@ -113,8 +110,8 @@ export const up = Command.make(
       } else {
         yield* startForeground(params);
       }
-    }),
-).pipe(Command.provide(GlobalConfigurationLive), Command.provide(ProjectConfigurationLive));
+    }).pipe(Effect.provide(ProjectConfigurationLive), Effect.provide(GlobalConfigurationLive)),
+);
 
 interface StartParams {
   serversToStart: ReadonlyArray<{ name: string; command: string }>;

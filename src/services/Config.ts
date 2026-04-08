@@ -48,7 +48,7 @@ export class GlobalConfiguration extends Context.Tag("GlobalConfiguration")<
 
 export class ProjectConfiguration extends Context.Tag("ProjectConfiguration")<
   ProjectConfiguration,
-  ProjectConfig
+  ProjectConfig & { readonly projectRoot: string }
 >() {}
 
 // --- Layers ---
@@ -80,11 +80,40 @@ export const GlobalConfigurationLive = Layer.effect(
   }),
 );
 
+const walkUpForConfig = (
+  fs: FileSystem.FileSystem,
+  startDir: string,
+): Effect.Effect<{ readonly configPath: string; readonly projectRoot: string }, ConfigError> =>
+  Effect.gen(function* () {
+    let current = path.resolve(startDir);
+    while (true) {
+      const candidate = path.join(current, ".vitulina.yaml");
+      const exists = yield* fs.exists(candidate).pipe(
+        Effect.mapError(
+          () =>
+            new ConfigError({
+              message: `Failed to check for config at ${candidate}`,
+            }),
+        ),
+      );
+      if (exists) {
+        return { configPath: candidate, projectRoot: current };
+      }
+      const parent = path.dirname(current);
+      if (parent === current) {
+        return yield* new ConfigError({
+          message: `No .vitulina.yaml found in ${startDir} or any parent directory`,
+        });
+      }
+      current = parent;
+    }
+  });
+
 export const ProjectConfigurationLive = Layer.effect(
   ProjectConfiguration,
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
-    const configPath = path.join(process.cwd(), ".vitulina.yaml");
+    const { configPath, projectRoot } = yield* walkUpForConfig(fs, process.cwd());
     const raw = yield* fs.readFileString(configPath).pipe(
       Effect.mapError(
         () =>
@@ -94,7 +123,7 @@ export const ProjectConfigurationLive = Layer.effect(
       ),
     );
     const parsed = parse(raw);
-    return yield* Schema.decodeUnknown(ProjectConfigSchema)(parsed).pipe(
+    const config = yield* Schema.decodeUnknown(ProjectConfigSchema)(parsed).pipe(
       Effect.mapError(
         (e) =>
           new ConfigError({
@@ -102,5 +131,6 @@ export const ProjectConfigurationLive = Layer.effect(
           }),
       ),
     );
+    return { ...config, projectRoot };
   }),
 );
