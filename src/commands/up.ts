@@ -13,7 +13,7 @@ import {
 import type { PrismaClient } from "../generated/prisma/client.js";
 import { Prisma } from "../Prisma.js";
 import { getJjWorkspaceName } from "../util/jj.js";
-import { acquirePort } from "../util/port.js";
+import { acquirePort, waitForPort } from "../util/port.js";
 import { isProcessAlive } from "../util/process.js";
 import { ensureProxy, PROXY_PORT } from "../util/proxy.js";
 import { detachOption, envOption, serverFilter } from "./shared.js";
@@ -113,8 +113,14 @@ export const up = Command.make(
     }).pipe(Effect.provide(ProjectConfigurationLive), Effect.provide(GlobalConfigurationLive)),
 );
 
+interface ServerSpec {
+  name: string;
+  command: string;
+  ui: boolean;
+}
+
 interface StartParams {
-  serversToStart: ReadonlyArray<{ name: string; command: string }>;
+  serversToStart: ReadonlyArray<ServerSpec>;
   env: string;
   cwd: string;
   logDir: string;
@@ -124,24 +130,45 @@ interface StartParams {
 }
 
 interface ServerContext {
-  server: { name: string; command: string };
+  server: ServerSpec;
   port: number;
   hostName: string;
+  url: string;
   stdoutLogPath: string;
   stderrLogPath: string;
   env: Record<string, string>;
 }
 
-const prepareServer = (params: StartParams, server: { name: string; command: string }) =>
+const openInBrowser = (url: string) =>
+  Effect.gen(function* () {
+    const opener =
+      process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
+    const proc = Bun.spawn([opener, url], { stdout: "ignore", stderr: "ignore" });
+    proc.unref();
+    yield* Console.log(`  opened ${url} in browser`);
+  });
+
+const waitThenOpen = (name: string, port: number, url: string) =>
+  Effect.gen(function* () {
+    yield* Console.log(`  waiting for ${name} on port ${port} before opening browser...`);
+    yield* waitForPort(port);
+    yield* openInBrowser(url);
+  }).pipe(
+    Effect.catchAll((err) => Console.error(`  failed to open ${name} ui (${url}): ${String(err)}`)),
+  );
+
+const prepareServer = (params: StartParams, server: ServerSpec) =>
   Effect.gen(function* () {
     const port = yield* acquirePort;
     const hostName = `${server.name}.${params.env}.${params.domain_suffix}`;
+    const url = `http://${hostName}:${PROXY_PORT}`;
     const stdoutLogPath = path.join(params.logDir, `${hostName}.stdout.log`);
     const stderrLogPath = path.join(params.logDir, `${hostName}.stderr.log`);
     return {
       server,
       port,
       hostName,
+      url,
       stdoutLogPath,
       stderrLogPath,
       env: {
@@ -177,6 +204,8 @@ const registerServer = (params: StartParams, ctx: ServerContext, pid: number) =>
 
 const startDetached = (params: StartParams) =>
   Effect.gen(function* () {
+    const uiTargets: Array<{ name: string; port: number; url: string }> = [];
+
     for (const server of params.serversToStart) {
       const ctx = yield* prepareServer(params, server);
 
@@ -191,16 +220,33 @@ const startDetached = (params: StartParams) =>
       yield* registerServer(params, ctx, proc.pid);
       yield* Console.log(`Started ${server.name} on port ${ctx.port} (pid ${proc.pid}) [detached]`);
       yield* Console.log(`  hostname: ${ctx.hostName}`);
-      yield* Console.log(`  url: http://${ctx.hostName}:${PROXY_PORT}`);
+      yield* Console.log(`  url: ${ctx.url}`);
       yield* Console.log(`  stdout: ${ctx.stdoutLogPath}`);
       yield* Console.log(`  stderr: ${ctx.stderrLogPath}`);
+      if (server.ui) {
+        uiTargets.push({ name: server.name, port: ctx.port, url: ctx.url });
+      }
+    }
+
+    if (uiTargets.length > 0) {
+      yield* Effect.all(
+        uiTargets.map((t) => waitThenOpen(t.name, t.port, t.url)),
+        { concurrency: "unbounded" },
+      );
     }
   });
 
 const startForeground = (params: StartParams) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
-    const processes: Array<{ name: string; port: number; pid: number; hostName: string }> = [];
+    const processes: Array<{
+      name: string;
+      port: number;
+      pid: number;
+      hostName: string;
+      url: string;
+      ui: boolean;
+    }> = [];
 
     for (const server of params.serversToStart) {
       const ctx = yield* prepareServer(params, server);
@@ -212,7 +258,14 @@ const startForeground = (params: StartParams) =>
 
       const proc = yield* PlatformCommand.start(cmd);
       const pid = proc.pid as unknown as number;
-      processes.push({ name: server.name, port: ctx.port, pid, hostName: ctx.hostName });
+      processes.push({
+        name: server.name,
+        port: ctx.port,
+        pid,
+        hostName: ctx.hostName,
+        url: ctx.url,
+        ui: server.ui,
+      });
 
       yield* registerServer(params, ctx, pid);
 
@@ -242,7 +295,13 @@ const startForeground = (params: StartParams) =>
     yield* Console.log("Started servers:");
     for (const s of processes) {
       yield* Console.log(`  ${s.name} -> port ${s.port} (pid ${s.pid})`);
-      yield* Console.log(`    url: http://${s.hostName}:${PROXY_PORT}`);
+      yield* Console.log(`    url: ${s.url}`);
+    }
+
+    for (const s of processes) {
+      if (s.ui) {
+        yield* Effect.fork(waitThenOpen(s.name, s.port, s.url));
+      }
     }
 
     const startedServerNames = processes.map((s) => s.name);

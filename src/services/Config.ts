@@ -19,6 +19,7 @@ const GlobalConfigSchema = Schema.Struct({
 const ServerEntrySchema = Schema.Struct({
   name: Schema.String,
   command: Schema.String,
+  ui: Schema.optionalWith(Schema.Boolean, { default: () => false }),
 });
 
 const ProjectConfigSchema = Schema.Struct({
