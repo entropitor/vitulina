@@ -194,6 +194,7 @@ const startDetached = (params: StartParams) =>
       yield* registerServer(params, ctx, proc.pid);
       yield* Console.log(`Started ${server.name} on port ${ctx.port} (pid ${proc.pid}) [detached]`);
       yield* Console.log(`  hostname: ${ctx.hostName}`);
+      yield* Console.log(`  url: http://${ctx.hostName}:${PROXY_PORT}`);
       yield* Console.log(`  stdout: ${ctx.stdoutLogPath}`);
       yield* Console.log(`  stderr: ${ctx.stderrLogPath}`);
     }
@@ -202,7 +203,7 @@ const startDetached = (params: StartParams) =>
 const startForeground = (params: StartParams) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
-    const processes: Array<{ name: string; port: number; pid: number }> = [];
+    const processes: Array<{ name: string; port: number; pid: number; hostName: string }> = [];
 
     for (const server of params.serversToStart) {
       const ctx = yield* prepareServer(params, server);
@@ -214,7 +215,7 @@ const startForeground = (params: StartParams) =>
 
       const proc = yield* PlatformCommand.start(cmd);
       const pid = proc.pid as unknown as number;
-      processes.push({ name: server.name, port: ctx.port, pid });
+      processes.push({ name: server.name, port: ctx.port, pid, hostName: ctx.hostName });
 
       yield* registerServer(params, ctx, pid);
 
@@ -244,6 +245,7 @@ const startForeground = (params: StartParams) =>
     yield* Console.log("Started servers:");
     for (const s of processes) {
       yield* Console.log(`  ${s.name} -> port ${s.port} (pid ${s.pid})`);
+      yield* Console.log(`    url: http://${s.hostName}:${PROXY_PORT}`);
     }
 
     const startedServerNames = processes.map((s) => s.name);
