@@ -1,10 +1,16 @@
 {
   "name": "vitulina",
   "version": "0.0.1",
+  "description": "Development environment manager and reverse proxy for orchestrating multiple microservices across isolated environments. Runs on Bun only.",
   "keywords": [],
   "bin": {
     "vitulina": "./dist/src/main.js"
   },
+  "files": [
+    "dist",
+    "!dist/tsconfig.tsbuildinfo",
+    "prisma/migrations"
+  ],
   "type": "module",
   "scripts": {
     "dev": "bun src/main.ts",
@@ -14,7 +20,8 @@
     "lint:fix": "oxlint --fix",
     "format": "oxfmt .",
     "format:check": "oxfmt --check .",
-    "ci": "tsgo --noEmit && oxlint && oxfmt --check ."
+    "ci": "tsgo --noEmit && oxlint && oxfmt --check .",
+    "prepublishOnly": "prisma generate && pnpm run ci && rm -rf dist && pnpm run build"
   },
   "dependencies": {
     "@effect/cli": "^0.73.2",
@@ -31,6 +38,9 @@
     "oxfmt": "^0.35.0",
     "oxlint": "^1.50.0",
     "prisma": "^7.4.1"
+  },
+  "engines": {
+    "bun": ">=1.0.0"
   },
   "packageManager": "pnpm@10.30.3+sha512.c961d1e0a2d8e354ecaa5166b822516668b7f44cb5bd95122d590dd81922f606f5473b6d23ec4a5be05e7fcd18e8488d47d978bbe981872f1145d06e9a740017"
 }

@@ -1,19 +1,12 @@
-import { Command } from "@effect/cli";
-import { BunContext, BunRuntime } from "@effect/platform-bun";
-import { Effect } from "effect";
-import { root } from "./commands/root.js";
-import { PrismaLive } from "./Prisma.js";
-import { GlobalConfigurationLive } from "./services/Config.js";
-import { VERSION } from "./version.js";
+#!/usr/bin/env bun
+// Entry point launcher: the real CLI (and its bun-only imports like
+// bun:sqlite) must not be loaded statically, or Node would crash on module
+// resolution before this check can print a useful error.
+if (typeof Bun === "undefined") {
+  console.error(
+    "vitulina requires the Bun runtime (https://bun.sh) — it cannot run under Node.js.",
+  );
+  process.exit(1);
+}
 
-const cli = Command.run(root, {
-  name: "vitulina",
-  version: VERSION,
-});
-
-cli(process.argv).pipe(
-  Effect.provide(GlobalConfigurationLive),
-  Effect.provide(PrismaLive),
-  Effect.provide(BunContext.layer),
-  BunRuntime.runMain,
-);
+await import("./cli.js");

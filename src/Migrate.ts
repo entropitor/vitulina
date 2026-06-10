@@ -18,7 +18,14 @@ const runStatements = (db: Database, sql: string): void => {
   }
 };
 
-const migrationsDir = path.join(import.meta.dir, "..", "prisma", "migrations");
+// In dev this file lives in src/, so migrations are one level up; in the
+// built package it lives in dist/src/, so they are two levels up.
+const migrationsDirCandidates = [
+  path.join(import.meta.dir, "..", "prisma", "migrations"),
+  path.join(import.meta.dir, "..", "..", "prisma", "migrations"),
+];
+const migrationsDir =
+  migrationsDirCandidates.find((dir) => fs.existsSync(dir)) ?? migrationsDirCandidates[0];
 
 export const migrate = Effect.sync(() => {
   const dbPath = getDbPath(dbUrl);

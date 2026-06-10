@@ -6,19 +6,15 @@ Vitulina starts your dev servers, assigns ports automatically, and runs a revers
 
 ## Setup
 
-### Prerequisites
-
-- [Bun](https://bun.sh) runtime
-- [pnpm](https://pnpm.io) package manager
-
 ### Install
 
+> **Note:** vitulina currently only runs on [Bun](https://bun.sh) — install Bun first. It will not work under Node.js.
+
 ```sh
-pnpm install
-pnpm run build
+bun install -g vitulina
 ```
 
-The CLI binary is `vitulina`, built to `dist/`.
+Installing with `npm install -g vitulina` also works on macOS and Linux as long as `bun` is on your `PATH` (the CLI's entry point runs via Bun). On Windows, use `bun install -g` — npm's shims would try to run the CLI with Node.
 
 ### Configuration
 
@@ -188,7 +184,10 @@ This lets you run the same project's servers in parallel across different enviro
 
 ## Development
 
+Requires [Bun](https://bun.sh) and [pnpm](https://pnpm.io).
+
 ```sh
+pnpm install             # install dependencies
 pnpm run dev             # run CLI via bun (development)
 pnpm run build           # compile with tsgo
 pnpm run types           # type-check only
