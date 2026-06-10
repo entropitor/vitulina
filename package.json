@@ -1,6 +1,6 @@
 {
   "name": "vitulina",
-  "version": "0.0.1",
+  "version": "1.0.0",
   "description": "Development environment manager and reverse proxy for orchestrating multiple microservices across isolated environments. Runs on Bun only.",
   "keywords": [],
   "bin": {
