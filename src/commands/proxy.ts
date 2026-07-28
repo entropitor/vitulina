@@ -75,7 +75,12 @@ const forwardRequest = (targetUrl: string, hostOverride?: string) =>
     const response = yield* client.execute(proxyReq).pipe(
       Effect.provideService(FetchHttpClient.RequestInit, {
         decompress: false,
-        // redirect: hostOverride != null ? "manual" : "follow",
+        // A reverse proxy must not follow redirects on the client's behalf: the client needs to
+        // see the 3xx so that cookies, history and relative locations resolve against the
+        // proxied origin. It also cannot follow them here — the second hop would have to replay
+        // the request body, and `bodyStream` above is a ReadableStream, which Bun refuses to
+        // replay ("Request body is a ReadableStream and cannot be replayed for this redirect").
+        redirect: "manual",
       } as RequestInit),
     );
 
