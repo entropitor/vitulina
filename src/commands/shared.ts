@@ -2,7 +2,7 @@ import { Args, Options } from "@effect/cli";
 import { Effect, Option } from "effect";
 import type { DevServerWhereInput } from "../generated/prisma/models/DevServer.js";
 import { ProjectConfiguration } from "../services/Config.js";
-import { getJjWorkspaceName } from "../util/jj.js";
+import { getWorkspaceName } from "../util/workspace.js";
 
 export const projectOption = Options.text("project").pipe(Options.withAlias("p"), Options.optional);
 
@@ -82,7 +82,7 @@ export const buildServerWhere = (options: ServerQueryOptions) =>
     if (envGiven) {
       where.env = options.env.value;
     } else {
-      where.env = (yield* Effect.promise(() => getJjWorkspaceName())) ?? "default";
+      where.env = (yield* Effect.promise(() => getWorkspaceName())) ?? "default";
     }
 
     // ----- Servers -----
