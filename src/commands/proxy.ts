@@ -75,7 +75,7 @@ const forwardRequest = (targetUrl: string, hostOverride?: string) =>
     const response = yield* client.execute(proxyReq).pipe(
       Effect.provideService(FetchHttpClient.RequestInit, {
         decompress: false,
-        // redirect: hostOverride != null ? "manual" : "follow",
+        redirect: "manual",
       } as RequestInit),
     );
 
