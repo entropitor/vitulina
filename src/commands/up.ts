@@ -12,7 +12,7 @@ import {
 } from "../services/Config.js";
 import type { PrismaClient } from "../generated/prisma/client.js";
 import { Prisma } from "../Prisma.js";
-import { getJjWorkspaceName } from "../util/jj.js";
+import { getWorkspaceName } from "../util/workspace.js";
 import { acquirePort, waitForPort } from "../util/port.js";
 import { isProcessAlive } from "../util/process.js";
 import { ensureProxy, PROXY_PORT } from "../util/proxy.js";
@@ -33,7 +33,7 @@ export const up = Command.make(
 
       const envName = Option.isSome(env)
         ? env.value
-        : ((yield* Effect.promise(() => getJjWorkspaceName())) ?? "default");
+        : ((yield* Effect.promise(() => getWorkspaceName())) ?? "default");
 
       const projectEntry = globalConfiguration.projects.find(
         (p) => p.name === projectConfiguration.project_name,
