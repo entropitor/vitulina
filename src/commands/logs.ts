@@ -1,11 +1,10 @@
 import { Command } from "@effect/cli";
 import { FileSystem } from "@effect/platform";
 import { Console, Effect } from "effect";
-import os from "node:os";
-import path from "node:path";
 import { Prisma } from "../Prisma.js";
 import { ConfigError, GlobalConfiguration, ProjectConfigurationLive } from "../services/Config.js";
 import { printLogFile, tailFile } from "../util/log.js";
+import { serverLocation } from "../util/server.js";
 import {
   allOption,
   allServersOption,
@@ -32,9 +31,6 @@ export const logs = Command.make(
       const prisma = yield* Prisma;
       const fs = yield* FileSystem.FileSystem;
 
-      const tmpDir = process.env["TMPDIR"] ?? os.tmpdir();
-      const logDir = path.join(tmpDir, "vitulina");
-
       const where = yield* buildServerWhere({ project, env, all, allServers, servers });
 
       const records = yield* Effect.promise(() => prisma.devServer.findMany({ where }));
@@ -51,11 +47,11 @@ export const logs = Command.make(
             message: `Project "${s.project_name}" not found in global config`,
           });
         }
-        const hostName = `${s.server_name}.${s.env}.${projectEntry.domain_suffix}`;
+        const location = serverLocation(s.server_name, s.env, projectEntry.domain_suffix);
         return {
           name: s.server_name,
-          stdoutPath: path.join(logDir, `${hostName}.stdout.log`),
-          stderrPath: path.join(logDir, `${hostName}.stderr.log`),
+          stdoutPath: location.stdoutLogPath,
+          stderrPath: location.stderrLogPath,
         };
       });
 

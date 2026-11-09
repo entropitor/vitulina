@@ -1,8 +1,6 @@
 import { Command } from "@effect/cli";
 import { Command as PlatformCommand, FileSystem } from "@effect/platform";
 import { Console, Effect, Option, Stream } from "effect";
-import os from "node:os";
-import path from "node:path";
 import {
   ConfigError,
   GlobalConfiguration,
@@ -15,6 +13,7 @@ import { Prisma } from "../Prisma.js";
 import { getWorkspaceName } from "../util/workspace.js";
 import { acquirePort, waitForPort } from "../util/port.js";
 import { isProcessAlive } from "../util/process.js";
+import { logDirectory, serverLocation } from "../util/server.js";
 import { ensureProxy, PROXY_PORT } from "../util/proxy.js";
 import { detachOption, envOption, serverFilter } from "./shared.js";
 
@@ -45,9 +44,7 @@ export const up = Command.make(
       }
       const { domain_suffix } = projectEntry;
 
-      const tmpDir = process.env["TMPDIR"] ?? os.tmpdir();
-      const logDir = path.join(tmpDir, "vitulina");
-      yield* fs.makeDirectory(logDir, { recursive: true });
+      yield* fs.makeDirectory(logDirectory(), { recursive: true });
 
       const candidateServers =
         filterServers.length > 0
@@ -99,7 +96,6 @@ export const up = Command.make(
         serversToStart,
         env: envName,
         cwd,
-        logDir,
         domain_suffix,
         projectName: projectConfiguration.project_name,
         prisma,
@@ -123,7 +119,6 @@ interface StartParams {
   serversToStart: ReadonlyArray<ServerSpec>;
   env: string;
   cwd: string;
-  logDir: string;
   domain_suffix: string;
   projectName: string;
   prisma: PrismaClient;
@@ -160,10 +155,11 @@ const waitThenOpen = (name: string, port: number, url: string) =>
 const prepareServer = (params: StartParams, server: ServerSpec) =>
   Effect.gen(function* () {
     const port = yield* acquirePort;
-    const hostName = `${server.name}.${params.env}.${params.domain_suffix}`;
-    const url = `http://${hostName}:${PROXY_PORT}`;
-    const stdoutLogPath = path.join(params.logDir, `${hostName}.stdout.log`);
-    const stderrLogPath = path.join(params.logDir, `${hostName}.stderr.log`);
+    const { hostName, url, stdoutLogPath, stderrLogPath } = serverLocation(
+      server.name,
+      params.env,
+      params.domain_suffix,
+    );
     return {
       server,
       port,
