@@ -1,7 +1,7 @@
 import { Args, Options } from "@effect/cli";
 import { Effect, Option } from "effect";
 import type { DevServerWhereInput } from "../generated/prisma/models/DevServer.js";
-import { ProjectConfiguration } from "../services/Config.js";
+import { ProjectConfiguration, ProjectConfigurationLive } from "../services/Config.js";
 import { getWorkspaceName } from "../util/workspace.js";
 
 export const projectOption = Options.text("project").pipe(Options.withAlias("p"), Options.optional);
@@ -72,7 +72,7 @@ export const buildServerWhere = (options: ServerQueryOptions) =>
       return where;
     }
 
-    const config = yield* ProjectConfiguration;
+    const config = yield* ProjectConfiguration.pipe(Effect.provide(ProjectConfigurationLive));
 
     // ----- Project ----- (auto-detected from the current config)
     where.project_name = config.project_name;

@@ -2,7 +2,7 @@ import { Command } from "@effect/cli";
 import { FileSystem } from "@effect/platform";
 import { Console, Effect } from "effect";
 import { Prisma } from "../Prisma.js";
-import { ConfigError, GlobalConfiguration, ProjectConfigurationLive } from "../services/Config.js";
+import { ConfigError, GlobalConfiguration } from "../services/Config.js";
 import { printLogFile, tailFile } from "../util/log.js";
 import { serverLocation } from "../util/server.js";
 import {
@@ -67,5 +67,5 @@ export const logs = Command.make(
           yield* printLogFile(fs, sl.stderrPath, sl.name, true);
         }
       }
-    }).pipe(Effect.provide(ProjectConfigurationLive)),
+    }),
 );

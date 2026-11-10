@@ -1,7 +1,6 @@
 import { Command } from "@effect/cli";
 import { Console, Effect } from "effect";
 import { Prisma } from "../Prisma.js";
-import { ProjectConfigurationLive } from "../services/Config.js";
 import { isProcessAlive } from "../util/process.js";
 import {
   allOption,
@@ -45,5 +44,5 @@ export const down = Command.make(
           }),
         );
       }
-    }).pipe(Effect.provide(ProjectConfigurationLive)),
+    }),
 );
