@@ -1,8 +1,9 @@
-import { Command } from "@effect/cli";
+import { Command, Options } from "@effect/cli";
 import { Console, Effect } from "effect";
 import { Prisma } from "../Prisma.js";
 import { GlobalConfiguration } from "../services/Config.js";
 import { isProcessAlive } from "../util/process.js";
+import { serverLocation } from "../util/server.js";
 import {
   allOption,
   allServersOption,
@@ -20,8 +21,9 @@ export const ps = Command.make(
     all: allOption,
     allServers: allServersOption,
     servers: serverFilter,
+    json: Options.boolean("json"),
   },
-  ({ project, env, all, allServers, servers }) =>
+  ({ project, env, all, allServers, servers, json }) =>
     Effect.gen(function* () {
       const globalConfig = yield* GlobalConfiguration;
       const prisma = yield* Prisma;
@@ -49,6 +51,29 @@ export const ps = Command.make(
         yield* Effect.promise(() =>
           prisma.devServer.deleteMany({ where: { id: { in: staleIds } } }),
         );
+      }
+
+      if (json) {
+        const output = records.map((s) => {
+          const projectEntry = globalConfig.projects.find((p) => p.name === s.project_name);
+          const location = projectEntry
+            ? serverLocation(s.server_name, s.env, projectEntry.domain_suffix)
+            : undefined;
+          return {
+            project: s.project_name,
+            env: s.env,
+            server: s.server_name,
+            workingDirectory: s.working_directory,
+            pid: s.pid,
+            port: s.port,
+            hostname: location?.hostName ?? null,
+            url: location?.url ?? `http://localhost:${s.port}`,
+            stdout: location?.stdoutLogPath ?? null,
+            stderr: location?.stderrLogPath ?? null,
+          };
+        });
+        yield* Console.log(JSON.stringify(output));
+        return;
       }
 
       if (records.length === 0) {
